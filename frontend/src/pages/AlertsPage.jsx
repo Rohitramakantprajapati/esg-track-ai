@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import CompanySelector from '../components/CompanySelector';
 import api from '../services/api';
 
-function AlertsPage({ companies, selectedCompanyId, setSelectedCompanyId, refreshTick }) {
+function AlertsPage({ companies, selectedCompanyId, setSelectedCompanyId, dataRefreshKey }) {
   const [severity, setSeverity] = useState('all');
   const [alerts, setAlerts] = useState([]);
 
@@ -14,7 +14,7 @@ function AlertsPage({ companies, selectedCompanyId, setSelectedCompanyId, refres
     setAlerts(data);
   };
 
-  useEffect(() => { load(); }, [selectedCompanyId, severity, refreshTick]);
+  useEffect(() => { load(); }, [selectedCompanyId, severity, dataRefreshKey]);
 
   const markAsRead = async (id) => {
     await api.put(`/alerts/read/${id}`);

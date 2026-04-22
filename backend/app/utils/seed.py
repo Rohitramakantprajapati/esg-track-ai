@@ -9,7 +9,11 @@ def seed_sample_data(db: Session):
     if db.query(Company).count() > 0:
         return
 
-    companies = [Company(name="Default Company", industry="General", size=1000)]
+    companies = [
+        Company(name="TechCorp India", industry="Technology", size=1200),
+        Company(name="Green Manufacturing Ltd", industry="Manufacturing", size=2200),
+        Company(name="Retail Solutions Pvt Ltd", industry="Retail", size=1600),
+    ]
     db.add_all(companies)
     db.commit()
 

@@ -1,10 +1,13 @@
-function CompanySelector({ companies, value }) {
-  const active = companies.find((company) => company.id === value) || companies[0];
-
+function CompanySelector({ companies, value, onChange }) {
   return (
-    <div className="input" aria-label="Active company">
-      {active?.name || 'Company'}
-    </div>
+    <select className="input" value={value || ''} onChange={(e) => onChange(Number(e.target.value))}>
+      <option value="">Select Company</option>
+      {companies.map((company) => (
+        <option key={company.id} value={company.id}>
+          {company.name}
+        </option>
+      ))}
+    </select>
   );
 }
 

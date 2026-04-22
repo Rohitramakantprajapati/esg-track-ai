@@ -1,5 +1,4 @@
 import io
-import json
 
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -12,102 +11,48 @@ from app.schemas import ColumnMappingImport
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
-
-def _parse_json_records(content: bytes):
-    obj = json.loads(content.decode("utf-8-sig"))
-    if isinstance(obj, list):
-        return pd.json_normalize(obj)
-    if isinstance(obj, dict):
-        if isinstance(obj.get("data"), list):
-            return pd.json_normalize(obj["data"])
-        return pd.json_normalize([obj])
-    raise ValueError("Unsupported JSON structure")
-
-
-def _parse_dataset(name: str, content: bytes):
-    lower_name = (name or "uploaded_file").lower()
-
-    if lower_name.endswith(".xlsx") or lower_name.endswith(".xls"):
-        return pd.read_excel(io.BytesIO(content)), "excel"
-
-    if lower_name.endswith(".json"):
-        return _parse_json_records(content), "json"
-
-    if lower_name.endswith(".jsonl") or lower_name.endswith(".ndjson"):
-        return pd.read_json(io.BytesIO(content), lines=True), "jsonl"
-
-    if lower_name.endswith(".tsv"):
-        return pd.read_csv(io.BytesIO(content), sep="\t"), "tsv"
-
-    if lower_name.endswith(".txt"):
-        return pd.read_csv(io.BytesIO(content), sep=None, engine="python"), "txt-delimited"
-
-    if lower_name.endswith(".csv"):
-        return pd.read_csv(io.BytesIO(content)), "csv"
-
-    parse_attempts = [
-        ("excel", lambda: pd.read_excel(io.BytesIO(content))),
-        ("json", lambda: _parse_json_records(content)),
-        ("jsonl", lambda: pd.read_json(io.BytesIO(content), lines=True)),
-        ("delimited", lambda: pd.read_csv(io.BytesIO(content), sep=None, engine="python")),
-    ]
-
-    for fmt, parser in parse_attempts:
-        try:
-            return parser(), fmt
-        except Exception:
-            continue
-
-    raise HTTPException(
-        status_code=400,
-        detail=(
-            "Unsupported dataset format. Supported formats: CSV, TSV, TXT (delimited), "
-            "Excel (.xlsx/.xls), JSON, JSONL/NDJSON."
-        ),
-    )
-
-
-def _clean_preview_df(df: pd.DataFrame):
-    if df is None or df.empty:
-        raise HTTPException(status_code=400, detail="No tabular rows found in the uploaded file")
-
-    safe = df.copy()
-    safe.columns = [str(col) for col in safe.columns]
-    safe = safe.fillna("")
-
-    for col in safe.columns:
-        safe[col] = safe[col].apply(
-            lambda value: json.dumps(value)
-            if isinstance(value, (dict, list))
-            else value
-        )
-
-    return safe
+TYPE_FIELDS = {
+    "environmental": {
+        "carbon_emissions_tonnes",
+        "energy_kwh",
+        "water_litres",
+        "waste_kg",
+        "recycled_waste_kg",
+    },
+    "social": {
+        "total_employees",
+        "female_employees",
+        "safety_incidents",
+        "training_hours",
+        "community_investment",
+    },
+    "governance": {
+        "board_members",
+        "independent_directors",
+        "audit_meetings",
+        "has_whistleblower_policy",
+        "data_breaches",
+    },
+}
 
 
 @router.post("/csv")
 async def preview_csv(file: UploadFile = File(...)):
-    name = file.filename or "uploaded_file"
+    name = file.filename.lower()
     content = await file.read()
 
-    if not content:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if name.endswith(".csv"):
+        df = pd.read_csv(io.BytesIO(content))
+    elif name.endswith(".xlsx") or name.endswith(".xls"):
+        df = pd.read_excel(io.BytesIO(content))
+    else:
+        raise HTTPException(status_code=400, detail="Only CSV or Excel files are supported")
 
-    try:
-        raw_df, parsed_format = _parse_dataset(name, content)
-        df = _clean_preview_df(raw_df)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Unable to parse uploaded data: {str(exc)}")
-
-    all_rows = df.to_dict(orient="records")
+    df = df.fillna("")
     preview = df.head(20).to_dict(orient="records")
     return {
-        "detected_format": parsed_format,
         "columns": list(df.columns),
-        "rows": all_rows,
-        "preview_rows": preview,
+        "rows": preview,
         "total_rows": int(df.shape[0]),
     }
 
@@ -124,15 +69,46 @@ def to_int(value):
     return int(float(value))
 
 
+def detect_data_type_from_mapping(mapping: dict[str, str]) -> str:
+    mapped_targets = {target for target in mapping.values() if target}
+    if not mapped_targets:
+        return "others"
+
+    best_type = "others"
+    best_score = 0
+    for data_type, fields in TYPE_FIELDS.items():
+        score = len(mapped_targets & fields)
+        if score > best_score:
+            best_type = data_type
+            best_score = score
+
+    return best_type if best_score > 0 else "others"
+
+
 @router.post("/import")
 def import_mapped_data(payload: ColumnMappingImport, db: Session = Depends(get_db)):
+    selected_type = payload.data_type
+    if selected_type == "others":
+        selected_type = detect_data_type_from_mapping(payload.mapping)
+
+    if selected_type not in {"environmental", "social", "governance"}:
+        upsert_submission(db, payload.company_id, payload.month, payload.year, "others")
+        db.commit()
+        return {
+            "imported_records": len(payload.rows),
+            "stored_records": 0,
+            "data_type": "others",
+            "message": "No supported ESG columns found. Saved as 'others' submission.",
+        }
+
     imported = 0
     for row in payload.rows:
         mapped = {}
         for source_col, target_col in payload.mapping.items():
-            mapped[target_col] = row.get(source_col)
+            if target_col:
+                mapped[target_col] = row.get(source_col)
 
-        if payload.data_type == "environmental":
+        if selected_type == "environmental":
             rec = (
                 db.query(EnvironmentalData)
                 .filter(
@@ -159,7 +135,7 @@ def import_mapped_data(payload: ColumnMappingImport, db: Session = Depends(get_d
                 db.add(EnvironmentalData(**data))
             upsert_submission(db, payload.company_id, payload.month, payload.year, "environmental")
 
-        elif payload.data_type == "social":
+        elif selected_type == "social":
             rec = (
                 db.query(SocialData)
                 .filter(
@@ -186,7 +162,7 @@ def import_mapped_data(payload: ColumnMappingImport, db: Session = Depends(get_d
                 db.add(SocialData(**data))
             upsert_submission(db, payload.company_id, payload.month, payload.year, "social")
 
-        elif payload.data_type == "governance":
+        elif selected_type == "governance":
             rec = (
                 db.query(GovernanceData)
                 .filter(
@@ -222,4 +198,4 @@ def import_mapped_data(payload: ColumnMappingImport, db: Session = Depends(get_d
         imported += 1
 
     db.commit()
-    return {"imported_records": imported}
+    return {"imported_records": imported, "stored_records": imported, "data_type": selected_type}

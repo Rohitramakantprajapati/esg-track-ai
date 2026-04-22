@@ -12,7 +12,7 @@ function Progress({ label, value }) {
   );
 }
 
-function AnalyticsPage({ companies, selectedCompanyId, setSelectedCompanyId, refreshTick }) {
+function AnalyticsPage({ companies, selectedCompanyId, setSelectedCompanyId, dataRefreshKey, lastDataUpdate }) {
   const now = new Date();
   const [startMonth, setStartMonth] = useState(Math.max(1, now.getMonth() - 2));
   const [startYear, setStartYear] = useState(now.getFullYear());
@@ -28,7 +28,17 @@ function AnalyticsPage({ companies, selectedCompanyId, setSelectedCompanyId, ref
     setData(res.data);
   };
 
-  useEffect(() => { load(); }, [selectedCompanyId, refreshTick]);
+  useEffect(() => {
+    load();
+  }, [selectedCompanyId, dataRefreshKey]);
+
+  useEffect(() => {
+    if (!lastDataUpdate || lastDataUpdate.companyId !== selectedCompanyId) return;
+    setEndMonth(lastDataUpdate.month);
+    setEndYear(lastDataUpdate.year);
+    setStartMonth(Math.max(1, lastDataUpdate.month - 2));
+    setStartYear(lastDataUpdate.year);
+  }, [lastDataUpdate, selectedCompanyId]);
 
   return (
     <div className="stack-lg">
@@ -72,7 +82,7 @@ function AnalyticsPage({ companies, selectedCompanyId, setSelectedCompanyId, ref
           <h3>Recommendations</h3>
           <ol className="ordered-list">
             {(data?.recommendations || []).map((r, idx) => (
-              <li key={idx}>{r.recommendation} {'->'} {r.estimated_impact}</li>
+              <li key={idx}>{r.recommendation} to {r.estimated_impact}</li>
             ))}
           </ol>
         </section>

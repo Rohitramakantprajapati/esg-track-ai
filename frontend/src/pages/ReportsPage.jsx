@@ -11,7 +11,7 @@ const sections = [
   'Recommendations',
 ];
 
-function ReportsPage({ companies, selectedCompanyId, setSelectedCompanyId, refreshTick }) {
+function ReportsPage({ companies, selectedCompanyId, setSelectedCompanyId, dataRefreshKey, lastDataUpdate }) {
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
@@ -23,7 +23,13 @@ function ReportsPage({ companies, selectedCompanyId, setSelectedCompanyId, refre
     setHistory(data);
   };
 
-  useEffect(() => { loadHistory(); }, [selectedCompanyId, refreshTick]);
+  useEffect(() => { loadHistory(); }, [selectedCompanyId, dataRefreshKey]);
+
+  useEffect(() => {
+    if (!lastDataUpdate || lastDataUpdate.companyId !== selectedCompanyId) return;
+    setMonth(lastDataUpdate.month);
+    setYear(lastDataUpdate.year);
+  }, [lastDataUpdate, selectedCompanyId]);
 
   const generate = async () => {
     if (!selectedCompanyId) return;

@@ -16,12 +16,7 @@ import api from '../services/api';
 
 const monthLabel = (m, y) => `${String(m).padStart(2, '0')}/${y}`;
 
-function DashboardPage({
-  companies,
-  selectedCompanyId,
-  setSelectedCompanyId,
-  refreshTick,
-}) {
+function DashboardPage({ companies, selectedCompanyId, setSelectedCompanyId, refreshCompanies, dataRefreshKey }) {
   const [scoreData, setScoreData] = useState(null);
   const [alerts, setAlerts] = useState([]);
 
@@ -37,7 +32,7 @@ function DashboardPage({
 
   useEffect(() => {
     loadDashboard();
-  }, [selectedCompanyId, refreshTick]);
+  }, [selectedCompanyId, dataRefreshKey]);
 
   const trendData = useMemo(() => {
     const rows = scoreData?.monthly_scores || [];
@@ -56,6 +51,15 @@ function DashboardPage({
     ];
   }, [scoreData]);
 
+  const addCompany = async () => {
+    const name = window.prompt('Company Name');
+    if (!name) return;
+    const industry = window.prompt('Industry', 'Technology') || 'Technology';
+    const size = Number(window.prompt('Company Size', '1000') || 1000);
+    await api.post('/companies', { name, industry, size });
+    await refreshCompanies();
+  };
+
   return (
     <div className="dashboard-grid">
       <section className="card card-span-2">
@@ -67,6 +71,7 @@ function DashboardPage({
               value={selectedCompanyId}
               onChange={setSelectedCompanyId}
             />
+            <button className="btn" onClick={addCompany}>Add New Company</button>
           </div>
         </div>
 

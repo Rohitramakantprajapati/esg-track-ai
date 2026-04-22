@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../services/api';
 
-function AuditorPage({ selectedCompanyId, refreshTick }) {
+function AuditorPage({ selectedCompanyId, dataRefreshKey }) {
   const [submissions, setSubmissions] = useState([]);
   const [active, setActive] = useState(null);
   const [trail, setTrail] = useState([]);
@@ -16,7 +16,7 @@ function AuditorPage({ selectedCompanyId, refreshTick }) {
     }
   };
 
-  useEffect(() => { load(); }, [selectedCompanyId, refreshTick]);
+  useEffect(() => { load(); }, [selectedCompanyId, dataRefreshKey]);
 
   const openSubmission = async (id) => {
     const { data } = await api.get(`/auditor/submission/${id}`);

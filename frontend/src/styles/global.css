@@ -295,46 +295,30 @@ h2, h3, h4, p {
 }
 
 .upload-zone {
-  border: 2px dashed #b9d2c2;
-  border-radius: 16px;
-  padding: 28px;
+  border: 2px dashed #bdd6c6;
+  border-radius: 12px;
+  padding: 24px;
   text-align: center;
-  background: linear-gradient(180deg, #f8fbf8 0%, #f2f7f3 100%);
+  background: #f9fcf9;
   display: grid;
   gap: 10px;
   justify-items: center;
-  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+  transition: border-color 160ms ease, background 160ms ease;
+  cursor: pointer;
 }
 
 .upload-zone-active {
-  border-color: var(--primary);
-  background: linear-gradient(180deg, #eef7f1 0%, #e7f1ea 100%);
-  transform: translateY(-1px);
+  border-color: #1A5C38;
+  background: #eef8f1;
 }
 
-.upload-file-input {
+.upload-zone:focus-visible {
+  outline: 2px solid #1A5C38;
+  outline-offset: 2px;
+}
+
+.file-input-hidden {
   display: none;
-}
-
-.upload-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: #1f4f35;
-}
-
-.upload-subtitle {
-  color: var(--muted);
-  font-size: 14px;
-}
-
-.upload-meta {
-  color: #1f4f35;
-  font-size: 13px;
-}
-
-.upload-error {
-  color: #b12e2e;
-  font-size: 13px;
 }
 
 .table-wrap {

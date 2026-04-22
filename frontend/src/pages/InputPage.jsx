@@ -3,7 +3,6 @@ import CompanySelector from '../components/CompanySelector';
 import api from '../services/api';
 
 const tabs = ['Manual Entry', 'File Upload', 'Sensor Connect'];
-const uploadAccept = '.csv,.tsv,.txt,.xlsx,.xls,.json,.jsonl,.ndjson';
 
 const fieldOptions = {
   environmental: [
@@ -15,87 +14,16 @@ const fieldOptions = {
   ],
   social: ['total_employees', 'female_employees', 'safety_incidents', 'training_hours', 'community_investment'],
   governance: ['board_members', 'independent_directors', 'audit_meetings', 'has_whistleblower_policy', 'data_breaches'],
+  others: [],
 };
 
-const fieldAliases = {
-  carbon_emissions_tonnes: ['carbon', 'co2', 'emission', 'emissions_tonnes', 'carbon_tonnes'],
-  energy_kwh: ['energy', 'power', 'electricity', 'energy_used_kwh'],
-  water_litres: ['water', 'water_consumed', 'water_liters', 'water_litres'],
-  waste_kg: ['waste', 'waste_generated', 'waste_kg'],
-  recycled_waste_kg: ['recycled', 'recycle', 'recycled_waste', 'recycled_kg'],
-  total_employees: ['employees', 'employee_count', 'headcount', 'total_staff'],
-  female_employees: ['female', 'women', 'female_employees', 'women_employees'],
-  safety_incidents: ['safety', 'incident', 'safety_incidents'],
-  training_hours: ['training', 'training_hours', 'learning_hours'],
-  community_investment: ['community', 'csr', 'community_spend', 'community_investment'],
-  board_members: ['board_members', 'board_size', 'total_board_members'],
-  independent_directors: ['independent_directors', 'independent_board_members'],
-  audit_meetings: ['audit_meetings', 'audit_committee_meetings'],
-  has_whistleblower_policy: ['whistleblower', 'whistle_blower', 'policy_enabled'],
-  data_breaches: ['data_breaches', 'breaches', 'security_breaches'],
-};
-
-const normalizeHeader = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-const buildSmartMapping = (columns, targets) => {
-  const mapped = {};
-  const usedTargets = new Set();
-
-  columns.forEach((col) => {
-    mapped[col] = '';
-    const source = normalizeHeader(col);
-
-    for (const target of targets) {
-      if (usedTargets.has(target)) continue;
-      const aliases = [target, ...(fieldAliases[target] || [])].map(normalizeHeader);
-      const isMatch = aliases.some((alias) => alias && (source === alias || source.includes(alias) || alias.includes(source)));
-      if (isMatch) {
-        mapped[col] = target;
-        usedTargets.add(target);
-        break;
-      }
-    }
-  });
-
-  return mapped;
-};
-
-const detectBestDataType = (columns) => {
-  const scored = Object.keys(fieldOptions).map((type) => {
-    const autoMap = buildSmartMapping(columns, fieldOptions[type]);
-    const matched = Object.values(autoMap).filter(Boolean).length;
-    return { type, matched };
-  });
-
-  scored.sort((a, b) => b.matched - a.matched);
-  if (!scored[0] || scored[0].matched === 0) {
-    return 'environmental';
-  }
-  return scored[0].type;
-};
-
-const inferPeriodFromRows = (rows) => {
-  const first = rows?.[0] || {};
-  const keys = Object.keys(first);
-  const normalized = Object.fromEntries(keys.map((k) => [normalizeHeader(k), first[k]]));
-
-  const monthRaw = normalized.month ?? normalized.monthno ?? normalized.monthnumber;
-  const yearRaw = normalized.year ?? normalized.fiscalyear;
-
-  const month = Number(monthRaw);
-  const year = Number(yearRaw);
-
-  if (month >= 1 && month <= 12 && year >= 2000) {
-    return { month, year };
-  }
-
-  const dateRaw = normalized.date ?? normalized.period ?? normalized.reportdate;
-  if (!dateRaw) return null;
-
-  const parsed = new Date(String(dateRaw));
-  if (Number.isNaN(parsed.getTime())) return null;
-  return { month: parsed.getMonth() + 1, year: parsed.getFullYear() };
-};
+const allTypedFields = ['environmental', 'social', 'governance'].flatMap((key) => fieldOptions[key]);
+const fieldToType = allTypedFields.reduce((acc, field) => {
+  if (fieldOptions.environmental.includes(field)) acc[field] = 'environmental';
+  else if (fieldOptions.social.includes(field)) acc[field] = 'social';
+  else if (fieldOptions.governance.includes(field)) acc[field] = 'governance';
+  return acc;
+}, {});
 
 function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataUpdated }) {
   const [tab, setTab] = useState('Manual Entry');
@@ -127,10 +55,6 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
   const [uploadData, setUploadData] = useState(null);
   const [dataType, setDataType] = useState('environmental');
   const [mapping, setMapping] = useState({});
-  const [uploadMeta, setUploadMeta] = useState({ fileName: '', format: '', rows: 0 });
-  const [isDragActive, setIsDragActive] = useState(false);
-  const [uploadError, setUploadError] = useState('');
-  const fileInputRef = useRef(null);
 
   const [sensorForm, setSensorForm] = useState({
     sensor_name: '',
@@ -140,6 +64,228 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
     is_active: true,
   });
   const [sensors, setSensors] = useState([]);
+  const [statusMsg, setStatusMsg] = useState('');
+  const [autoImporting, setAutoImporting] = useState(false);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [selectedFileName, setSelectedFileName] = useState('');
+  const fileInputRef = useRef(null);
+
+  const normalize = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  const autoDetectMapping = (columns, currentType) => {
+    const byField = currentType === 'others' ? allTypedFields : fieldOptions[currentType];
+    const aliases = {
+      carbon_emissions_tonnes: ['carbon', 'co2', 'emission', 'carbonemissions'],
+      energy_kwh: ['energy', 'electricity', 'kwh', 'power'],
+      water_litres: ['water', 'litres', 'liter', 'waterusage'],
+      waste_kg: ['waste', 'wastekg', 'solidwaste'],
+      recycled_waste_kg: ['recycled', 'recycle', 'recycledwaste'],
+      total_employees: ['employees', 'headcount', 'totalemployees'],
+      female_employees: ['female', 'women', 'femaleemployees'],
+      safety_incidents: ['safety', 'incidents', 'accidents'],
+      training_hours: ['training', 'learninghours'],
+      community_investment: ['community', 'csr', 'investment'],
+      board_members: ['board', 'boardmembers'],
+      independent_directors: ['independent', 'directors', 'independentdirectors'],
+      audit_meetings: ['audit', 'meetings', 'auditmeetings'],
+      has_whistleblower_policy: ['whistleblower', 'whistle', 'policy'],
+      data_breaches: ['breach', 'breaches', 'databreach'],
+    };
+
+    const detected = {};
+    columns.forEach((col) => {
+      const cleanCol = normalize(col);
+      let match = byField.find((field) => normalize(field) === cleanCol);
+      if (!match) {
+        match = byField.find((field) => (aliases[field] || []).some((alias) => cleanCol.includes(normalize(alias))));
+      }
+      detected[col] = match || '';
+    });
+    return detected;
+  };
+
+  const groupMappingsByType = (detectedMapping) => {
+    const grouped = {
+      environmental: {},
+      social: {},
+      governance: {},
+    };
+    Object.entries(detectedMapping || {}).forEach(([sourceCol, targetCol]) => {
+      if (!targetCol) return;
+      const type = fieldToType[targetCol];
+      if (!type) return;
+      grouped[type][sourceCol] = targetCol;
+    });
+    return grouped;
+  };
+
+  const findColumnByAlias = (columns, aliases) => {
+    const normalizedAliases = aliases.map((a) => normalize(a));
+    return columns.find((col) => {
+      const clean = normalize(col);
+      return normalizedAliases.some((alias) => clean.includes(alias));
+    });
+  };
+
+  const inferCompanyId = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber)) {
+      const byId = companies.find((c) => c.id === asNumber);
+      if (byId) return byId.id;
+    }
+    const cleanValue = normalize(value);
+    const byName = companies.find((c) => {
+      const cleanName = normalize(c.name);
+      return cleanName === cleanValue || cleanName.includes(cleanValue) || cleanValue.includes(cleanName);
+    });
+    return byName?.id ?? null;
+  };
+
+  const detectDataType = (columns) => {
+    const types = ['environmental', 'social', 'governance'];
+    const scoreByType = types.map((type) => {
+      const mapped = autoDetectMapping(columns, type);
+      const score = Object.values(mapped).filter(Boolean).length;
+      return { type, score };
+    });
+    scoreByType.sort((a, b) => b.score - a.score);
+    return scoreByType[0]?.score >= 2 ? scoreByType[0].type : 'others';
+  };
+
+  const detectUploadMeta = (columns, rows) => {
+    const first = rows?.[0] || {};
+    const monthCol = findColumnByAlias(columns, ['month', 'mnth', 'period_month']);
+    const yearCol = findColumnByAlias(columns, ['year', 'yr', 'period_year']);
+    const companyCol = findColumnByAlias(columns, ['company_id', 'companyid', 'company', 'organization', 'org']);
+
+    const detectedMonth = monthCol ? Number(first[monthCol]) : null;
+    const detectedYear = yearCol ? Number(first[yearCol]) : null;
+    const detectedCompanyId = companyCol ? inferCompanyId(first[companyCol]) : null;
+
+    return {
+      month: detectedMonth >= 1 && detectedMonth <= 12 ? detectedMonth : null,
+      year: Number.isFinite(detectedYear) && detectedYear >= 2000 ? detectedYear : null,
+      companyId: detectedCompanyId,
+    };
+  };
+
+  const applyAutoFill = (payload) => {
+    if (payload?.environmental) {
+      setEnvForm({
+        carbon_emissions_tonnes: String(payload.environmental.carbon_emissions_tonnes ?? ''),
+        energy_kwh: String(payload.environmental.energy_kwh ?? ''),
+        water_litres: String(payload.environmental.water_litres ?? ''),
+        waste_kg: String(payload.environmental.waste_kg ?? ''),
+        recycled_waste_kg: String(payload.environmental.recycled_waste_kg ?? ''),
+      });
+    }
+    if (payload?.social) {
+      setSocialForm({
+        total_employees: String(payload.social.total_employees ?? ''),
+        female_employees: String(payload.social.female_employees ?? ''),
+        safety_incidents: String(payload.social.safety_incidents ?? ''),
+        training_hours: String(payload.social.training_hours ?? ''),
+        community_investment: String(payload.social.community_investment ?? ''),
+      });
+    }
+    if (payload?.governance) {
+      setGovForm({
+        board_members: String(payload.governance.board_members ?? ''),
+        independent_directors: String(payload.governance.independent_directors ?? ''),
+        audit_meetings: String(payload.governance.audit_meetings ?? ''),
+        has_whistleblower_policy: Boolean(payload.governance.has_whistleblower_policy),
+        data_breaches: String(payload.governance.data_breaches ?? ''),
+      });
+    }
+  };
+
+  const applySmartFillDefaults = () => {
+    setEnvForm((prev) => {
+      const waste = Number(prev.waste_kg || 0);
+      return {
+        ...prev,
+        recycled_waste_kg: prev.recycled_waste_kg === '' && waste > 0 ? String(Math.round(waste * 0.6)) : prev.recycled_waste_kg,
+      };
+    });
+
+    setSocialForm((prev) => {
+      const total = Number(prev.total_employees || 0);
+      return {
+        ...prev,
+        female_employees: prev.female_employees === '' && total > 0 ? String(Math.round(total * 0.4)) : prev.female_employees,
+        training_hours: prev.training_hours === '' ? '40' : prev.training_hours,
+        community_investment: prev.community_investment === '' && total > 0 ? String(total * 1000) : prev.community_investment,
+      };
+    });
+
+    setGovForm((prev) => {
+      const board = Number(prev.board_members || 0);
+      return {
+        ...prev,
+        independent_directors: prev.independent_directors === '' && board > 0 ? String(Math.ceil(board * 0.5)) : prev.independent_directors,
+        audit_meetings: prev.audit_meetings === '' ? '4' : prev.audit_meetings,
+      };
+    });
+
+    setStatusMsg('Smart fill applied: missing values were auto-populated using ESG baseline assumptions.');
+  };
+
+  const syncEverything = async (companyId, targetMonth, targetYear, source) => {
+    if (!companyId || !targetMonth || !targetYear) return;
+
+    const startMonth = Math.max(1, targetMonth - 2);
+    const startYear = targetYear;
+    try {
+      await Promise.all([
+        api.get(`/scores/${companyId}`),
+        api.get(`/alerts/${companyId}`),
+        api.get('/auditor/submissions'),
+        api.get(`/auditor/trail/${companyId}`),
+        api.get(`/reports/history/${companyId}`),
+        api.get(`/analytics/${companyId}`, {
+          params: {
+            start_month: startMonth,
+            start_year: startYear,
+            end_month: targetMonth,
+            end_year: targetYear,
+          },
+        }),
+      ]);
+      await api.get(`/reports/generate/${companyId}/${targetMonth}/${targetYear}`, { responseType: 'blob' });
+    } catch {
+      // Soft-fail: the pages still refresh through the global data update event.
+    }
+
+    onDataUpdated?.({ companyId, month: targetMonth, year: targetYear, source });
+  };
+
+  const loadMonthlyData = async () => {
+    if (!selectedCompanyId) return;
+    try {
+      const { data } = await api.get(`/data/monthly/${selectedCompanyId}`, {
+        params: { month, year },
+      });
+
+      if (data?.has_data) {
+        applyAutoFill(data);
+        setStatusMsg(`Auto-filled from saved data for ${String(month).padStart(2, '0')}/${year}`);
+        return;
+      }
+
+      const latest = await api.get(`/data/monthly/${selectedCompanyId}`);
+      if (latest.data?.has_data) {
+        applyAutoFill(latest.data);
+        setStatusMsg(
+          `No exact data for ${String(month).padStart(2, '0')}/${year}. Auto-filled using latest available ${String(latest.data.month).padStart(2, '0')}/${latest.data.year}.`
+        );
+      } else {
+        setStatusMsg('No saved data found for this company yet.');
+      }
+    } catch {
+      setStatusMsg('Could not auto-fill data for selected month/year.');
+    }
+  };
 
   const loadSensors = async () => {
     if (!selectedCompanyId) return;
@@ -150,6 +296,16 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
   useEffect(() => {
     loadSensors();
   }, [selectedCompanyId]);
+
+  useEffect(() => {
+    loadMonthlyData();
+  }, [selectedCompanyId, month, year]);
+
+  useEffect(() => {
+    if (uploadData) {
+      setMapping(autoDetectMapping(uploadData.columns, dataType));
+    }
+  }, [dataType]);
 
   const saveManual = async () => {
     if (!selectedCompanyId) return;
@@ -167,112 +323,178 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
         data_breaches: Number(govForm.data_breaches || 0),
       }),
     ]);
-    onDataUpdated?.();
-    window.alert('Data saved successfully');
+    await loadMonthlyData();
+    await syncEverything(selectedCompanyId, month, year, 'manual-entry');
+    window.alert('Data saved and everything is auto-updated: dashboard, analytics, auditor, reports, and alerts.');
+  };
+
+  const executeImport = async ({ companyId, targetMonth, targetYear, detectedType, rows, detectedMapping, source }) => {
+    if (!companyId || !targetMonth || !targetYear) {
+      setStatusMsg('Auto-import paused: please confirm company, month, and year.');
+      return;
+    }
+    let importedTotal = 0;
+    if (detectedType === 'others') {
+      const grouped = groupMappingsByType(detectedMapping);
+      const importTargets = Object.entries(grouped).filter(([, mapObj]) => Object.keys(mapObj).length > 0);
+
+      if (importTargets.length === 0) {
+        const fallback = await api.post('/upload/import', {
+          company_id: companyId,
+          month: targetMonth,
+          year: targetYear,
+          data_type: 'others',
+          rows,
+          mapping: detectedMapping,
+        });
+        importedTotal = fallback.data?.imported_records || 0;
+      } else {
+        const results = await Promise.all(
+          importTargets.map(([type, mapObj]) =>
+            api.post('/upload/import', {
+              company_id: companyId,
+              month: targetMonth,
+              year: targetYear,
+              data_type: type,
+              rows,
+              mapping: mapObj,
+            })
+          )
+        );
+        importedTotal = results.reduce((sum, r) => sum + (r.data?.imported_records || 0), 0);
+      }
+    } else {
+      const response = await api.post('/upload/import', {
+        company_id: companyId,
+        month: targetMonth,
+        year: targetYear,
+        data_type: detectedType,
+        rows,
+        mapping: detectedMapping,
+      });
+      importedTotal = response.data?.imported_records || 0;
+    }
+
+    await loadMonthlyData();
+    await syncEverything(companyId, targetMonth, targetYear, source);
+    setStatusMsg(`Auto-import completed: ${importedTotal} records processed and all modules synced.`);
   };
 
   const handleFile = async (file) => {
     if (!file) return;
-    setUploadError('');
+    setSelectedFileName(file.name || '');
+    const form = new FormData();
+    form.append('file', file);
+    const { data } = await api.post('/upload/csv', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+    setUploadData(data);
 
+    const detectedType = detectDataType(data.columns);
+    const detectedMeta = detectUploadMeta(data.columns, data.rows || []);
+    const targetCompanyId = detectedMeta.companyId || selectedCompanyId;
+    const targetMonth = detectedMeta.month || month;
+    const targetYear = detectedMeta.year || year;
+
+    setDataType(detectedType);
+    if (targetMonth) setMonth(targetMonth);
+    if (targetYear) setYear(targetYear);
+    if (detectedMeta.companyId) setSelectedCompanyId(detectedMeta.companyId);
+
+    const detectedMapping = autoDetectMapping(data.columns, detectedType);
+    setMapping(detectedMapping);
+
+    const detectNotes = [
+      `type=${detectedType}`,
+      targetMonth ? `month=${targetMonth}` : null,
+      targetYear ? `year=${targetYear}` : null,
+      targetCompanyId ? `company_id=${targetCompanyId}` : null,
+    ].filter(Boolean).join(', ');
+
+    const mappedCount = Object.values(detectedMapping).filter(Boolean).length;
+    const groupedForOthers = groupMappingsByType(detectedMapping);
+    const othersDetectedGroups = ['environmental', 'social', 'governance'].filter((type) => Object.keys(groupedForOthers[type]).length > 0).length;
+    const requiredFields = fieldOptions[detectedType]?.length || 0;
+    const minimumMapped = requiredFields === 0 ? 0 : Math.max(2, Math.ceil(requiredFields * 0.5));
+    const isOthersConfident = detectedType === 'others' && othersDetectedGroups >= 1;
+    if (!targetCompanyId || (!isOthersConfident && mappedCount < minimumMapped)) {
+      const reason = !targetCompanyId
+        ? 'company could not be detected'
+        : detectedType === 'others'
+          ? "dataset does not match Environmental/Social/Governance fields"
+          : 'detection confidence is low';
+      setStatusMsg(`Upload detected automatically: ${detectNotes}. Auto-import paused because ${reason}, please review mapping and click Confirm and Import.`);
+      return;
+    }
+
+    setAutoImporting(true);
+    setStatusMsg(`Upload detected automatically: ${detectNotes}. Auto-import in progress...`);
     try {
-      const form = new FormData();
-      form.append('file', file);
-      const { data } = await api.post('/upload/csv', form, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setUploadData(data);
-      setUploadMeta({
-        fileName: file.name,
-        format: data.detected_format || 'unknown',
-        rows: data.total_rows || 0,
+      await executeImport({
+        companyId: targetCompanyId,
+        targetMonth,
+        targetYear,
+        detectedType,
+        rows: data.rows,
+        detectedMapping,
+        source: 'file-auto-import',
       });
-
-      const bestType = detectBestDataType(data.columns);
-      setDataType(bestType);
-      setMapping(buildSmartMapping(data.columns, fieldOptions[bestType]));
-
-      const inferred = inferPeriodFromRows(data.rows);
-      if (inferred) {
-        setMonth(inferred.month);
-        setYear(inferred.year);
-      }
-    } catch (err) {
-      setUploadData(null);
-      setUploadMeta({ fileName: '', format: '', rows: 0 });
-      setMapping({});
-      setUploadError(err?.response?.data?.detail || 'Unable to parse this file. Try another format.');
+    } finally {
+      setAutoImporting(false);
     }
   };
 
-  const autoConfigureForCurrentType = () => {
-    if (!uploadData) return;
-    setMapping(buildSmartMapping(uploadData.columns, fieldOptions[dataType]));
+  const openFilePicker = () => {
+    fileInputRef.current?.click();
   };
 
-  const autoImportAll = async () => {
-    if (!uploadData || !selectedCompanyId) return;
+  const onFileInputChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      await handleFile(file);
+    }
+    e.target.value = '';
+  };
 
-    try {
-      const detectedTypes = Object.keys(fieldOptions).filter((type) => {
-        const smartMapping = buildSmartMapping(uploadData.columns, fieldOptions[type]);
-        return Object.values(smartMapping).some(Boolean);
-      });
+  const onUploadDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDraggingFile) setIsDraggingFile(true);
+  };
 
-      if (detectedTypes.length === 0) {
-        window.alert('No matching ESG columns detected for automatic import.');
-        return;
-      }
+  const onUploadDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingFile(false);
+  };
 
-      let importedTotal = 0;
-      for (const type of detectedTypes) {
-        const smartMapping = buildSmartMapping(uploadData.columns, fieldOptions[type]);
-        const { data } = await api.post('/upload/import', {
-          company_id: selectedCompanyId,
-          month,
-          year,
-          data_type: type,
-          rows: uploadData.rows,
-          mapping: smartMapping,
-        });
-        importedTotal += Number(data?.imported_records || 0);
-      }
-
-      onDataUpdated?.();
-      window.alert(`Auto import done for ${detectedTypes.join(', ')}. Imported rows: ${importedTotal}`);
-    } catch (err) {
-      window.alert(err?.response?.data?.detail || 'Automatic import failed.');
+  const onUploadDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingFile(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) {
+      await handleFile(file);
     }
   };
 
-  const onDropFile = async (event) => {
-    event.preventDefault();
-    setIsDragActive(false);
-    const dropped = event.dataTransfer?.files?.[0];
-    if (dropped) {
-      await handleFile(dropped);
+  const onUploadZoneKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openFilePicker();
     }
   };
 
   const importData = async () => {
     if (!uploadData) return;
-    if (!selectedCompanyId) {
-      window.alert('Select a company first');
-      return;
-    }
-
-    try {
-      const { data } = await api.post('/upload/import', {
-        company_id: selectedCompanyId,
-        month,
-        year,
-        data_type: dataType,
-        rows: uploadData.rows,
-        mapping,
-      });
-      onDataUpdated?.();
-      window.alert(`Imported ${data.imported_records} records`);
-    } catch (err) {
-      window.alert(err?.response?.data?.detail || 'Import failed. Please check mapping and file values.');
-    }
+    await executeImport({
+      companyId: selectedCompanyId,
+      targetMonth: month,
+      targetYear: year,
+      detectedType: dataType,
+      rows: uploadData.rows,
+      detectedMapping: mapping,
+      source: 'file-import',
+    });
+    window.alert('Import completed and everything is auto-updated: dashboard, analytics, auditor, reports, and alerts.');
   };
 
   const saveSensor = async () => {
@@ -284,12 +506,17 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
     loadSensors();
   };
 
-  const options = useMemo(() => fieldOptions[dataType], [dataType]);
+  const pullSensorData = async (sensorId) => {
+    await api.post(`/sensors/pull/${sensorId}`);
+    const now = new Date();
+    setMonth(now.getMonth() + 1);
+    setYear(now.getFullYear());
+    await loadMonthlyData();
+    await syncEverything(selectedCompanyId, now.getMonth() + 1, now.getFullYear(), 'sensor-pull');
+    window.alert('Latest sensor data pulled and applied. All modules are now refreshed.');
+  };
 
-  useEffect(() => {
-    if (!uploadData) return;
-    setMapping(buildSmartMapping(uploadData.columns, fieldOptions[dataType]));
-  }, [dataType, uploadData]);
+  const options = useMemo(() => (dataType === 'others' ? allTypedFields : fieldOptions[dataType]), [dataType]);
 
   return (
     <div className="card">
@@ -305,6 +532,7 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
         <input className="input" type="number" value={month} min={1} max={12} onChange={(e) => setMonth(Number(e.target.value))} placeholder="Month" />
         <input className="input" type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} placeholder="Year" />
       </div>
+      {statusMsg && <p className="muted">{statusMsg}</p>}
 
       {tab === 'Manual Entry' && (
         <div className="stack-lg">
@@ -323,6 +551,7 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
               <label className="toggle-row"><input type="checkbox" checked={govForm.has_whistleblower_policy} onChange={(e) => setGovForm((p) => ({ ...p, has_whistleblower_policy: e.target.checked }))} /> Whistleblower Policy</label>
             </div>
           </details>
+          <button className="btn btn-light" onClick={applySmartFillDefaults}>Auto Fill Missing Values</button>
           <button className="btn" onClick={saveManual}>Save Data</button>
         </div>
       )}
@@ -330,35 +559,35 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
       {tab === 'File Upload' && (
         <div className="stack-lg">
           <div
-            className={`upload-zone ${isDragActive ? 'upload-zone-active' : ''}`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setIsDragActive(true);
-            }}
-            onDragLeave={() => setIsDragActive(false)}
-            onDrop={onDropFile}
+            className={`upload-zone ${isDraggingFile ? 'upload-zone-active' : ''}`}
+            onDragOver={onUploadDragOver}
+            onDragLeave={onUploadDragLeave}
+            onDrop={onUploadDrop}
+            onClick={openFilePicker}
+            onKeyDown={onUploadZoneKeyDown}
+            role="button"
+            tabIndex={0}
+            aria-label="Upload data file"
           >
             <input
               ref={fileInputRef}
-              className="upload-file-input"
+              className="file-input-hidden"
               type="file"
-              accept={uploadAccept}
-              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+              accept=".csv,.xlsx,.xls"
+              onChange={onFileInputChange}
             />
-            <p className="upload-title">Drop your dataset here</p>
-            <p className="upload-subtitle">CSV, TSV, TXT, Excel, JSON, JSONL</p>
-            <button className="btn btn-light" onClick={() => fileInputRef.current?.click()}>Choose File</button>
-            {uploadMeta.fileName && (
-              <p className="upload-meta">{uploadMeta.fileName} | format: {uploadMeta.format} | rows: {uploadMeta.rows}</p>
-            )}
-            {uploadError && <p className="upload-error">{uploadError}</p>}
+            <p>{isDraggingFile ? 'Drop file to upload' : 'Drag and drop CSV or Excel file, or click here to browse'}</p>
+            {selectedFileName && <small className="muted">Selected: {selectedFileName}</small>}
           </div>
 
           <div className="row gap wrap">
-            <label>Detected Data Type</label>
-            <div className="input">{dataType}</div>
-            <button className="btn btn-light" onClick={autoConfigureForCurrentType}>Auto Map This Type</button>
-            <button className="btn" onClick={autoImportAll}>Auto Import All</button>
+            <label>Data Type</label>
+            <select className="input" value={dataType} onChange={(e) => setDataType(e.target.value)}>
+              <option value="environmental">Environmental</option>
+              <option value="social">Social</option>
+              <option value="governance">Governance</option>
+              <option value="others">Others</option>
+            </select>
           </div>
 
           {uploadData && (
@@ -381,13 +610,13 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
                 <table>
                   <thead><tr>{uploadData.columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
                   <tbody>
-                    {(uploadData.preview_rows || uploadData.rows).slice(0, 6).map((row, idx) => (
+                    {uploadData.rows.slice(0, 6).map((row, idx) => (
                       <tr key={idx}>{uploadData.columns.map((c) => <td key={c}>{String(row[c])}</td>)}</tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <button className="btn" onClick={importData}>Confirm and Import</button>
+              <button className="btn" onClick={importData} disabled={autoImporting}>{autoImporting ? 'Auto Importing...' : 'Confirm and Import'}</button>
             </>
           )}
         </div>
@@ -419,15 +648,7 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
                     <td><span className={`dot ${s.is_active ? 'info' : 'critical'}`} /> {s.is_active ? 'active' : 'inactive'}</td>
                     <td className="row gap">
                       <button className="btn btn-light" onClick={() => api.post(`/sensors/test/${s.id}`).then(loadSensors)}>Test Connection</button>
-                      <button
-                        className="btn btn-light"
-                        onClick={async () => {
-                          await api.post(`/sensors/pull/${s.id}`);
-                          onDataUpdated?.();
-                        }}
-                      >
-                        Manual Pull Data
-                      </button>
+                      <button className="btn btn-light" onClick={() => pullSensorData(s.id)}>Manual Pull Data</button>
                     </td>
                   </tr>
                 ))}

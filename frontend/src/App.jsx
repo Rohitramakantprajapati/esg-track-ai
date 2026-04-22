@@ -12,11 +12,8 @@ import api from './services/api';
 function App() {
   const [companies, setCompanies] = useState([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState(null);
-  const [dashboardRefreshTick, setDashboardRefreshTick] = useState(0);
-
-  const notifyDashboardRefresh = () => {
-    setDashboardRefreshTick((prev) => prev + 1);
-  };
+  const [dataRefreshKey, setDataRefreshKey] = useState(0);
+  const [lastDataUpdate, setLastDataUpdate] = useState(null);
 
   const loadCompanies = async () => {
     const { data } = await api.get('/companies');
@@ -30,22 +27,14 @@ function App() {
     loadCompanies();
   }, []);
 
-  useEffect(() => {
-    if (!selectedCompanyId) return undefined;
-
-    const intervalId = setInterval(async () => {
-      try {
-        const { data } = await api.post(`/sensors/pull/company/${selectedCompanyId}`);
-        if ((data?.succeeded || 0) > 0) {
-          notifyDashboardRefresh();
-        }
-      } catch (error) {
-        // Ignore sensor pull errors and retry on next interval.
-      }
-    }, 8000);
-
-    return () => clearInterval(intervalId);
-  }, [selectedCompanyId]);
+  const notifyDataUpdated = (payload) => {
+    const update = {
+      at: Date.now(),
+      ...payload,
+    };
+    setLastDataUpdate(update);
+    setDataRefreshKey((prev) => prev + 1);
+  };
 
   return (
     <div className="app-bg">
@@ -60,7 +49,7 @@ function App() {
                 selectedCompanyId={selectedCompanyId}
                 setSelectedCompanyId={setSelectedCompanyId}
                 refreshCompanies={loadCompanies}
-                refreshTick={dashboardRefreshTick}
+                dataRefreshKey={dataRefreshKey}
               />
             }
           />
@@ -71,7 +60,7 @@ function App() {
                 companies={companies}
                 selectedCompanyId={selectedCompanyId}
                 setSelectedCompanyId={setSelectedCompanyId}
-                onDataUpdated={notifyDashboardRefresh}
+                onDataUpdated={notifyDataUpdated}
               />
             }
           />
@@ -82,7 +71,8 @@ function App() {
                 companies={companies}
                 selectedCompanyId={selectedCompanyId}
                 setSelectedCompanyId={setSelectedCompanyId}
-                refreshTick={dashboardRefreshTick}
+                dataRefreshKey={dataRefreshKey}
+                lastDataUpdate={lastDataUpdate}
               />
             }
           />
@@ -92,7 +82,7 @@ function App() {
               <AuditorPage
                 companies={companies}
                 selectedCompanyId={selectedCompanyId}
-                refreshTick={dashboardRefreshTick}
+                dataRefreshKey={dataRefreshKey}
               />
             }
           />
@@ -103,7 +93,8 @@ function App() {
                 companies={companies}
                 selectedCompanyId={selectedCompanyId}
                 setSelectedCompanyId={setSelectedCompanyId}
-                refreshTick={dashboardRefreshTick}
+                dataRefreshKey={dataRefreshKey}
+                lastDataUpdate={lastDataUpdate}
               />
             }
           />
@@ -114,7 +105,7 @@ function App() {
                 companies={companies}
                 selectedCompanyId={selectedCompanyId}
                 setSelectedCompanyId={setSelectedCompanyId}
-                refreshTick={dashboardRefreshTick}
+                dataRefreshKey={dataRefreshKey}
               />
             }
           />

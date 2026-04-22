@@ -93,7 +93,7 @@ def get_submission_detail(submission_id: int, db: Session = Depends(get_db)):
             )
             .one_or_none()
         )
-    else:
+    elif sub.data_type == "governance":
         payload = (
             db.query(GovernanceData)
             .filter(
@@ -103,6 +103,8 @@ def get_submission_detail(submission_id: int, db: Session = Depends(get_db)):
             )
             .one_or_none()
         )
+    else:
+        payload = None
 
     return {
         "submission": {
