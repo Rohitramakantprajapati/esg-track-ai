@@ -1,13 +1,53 @@
+# Python
 .venv/
-.venv-1/
-backend/__pycache__/
-backend/app/__pycache__/
-frontend/node_modules/
-frontend/dist/
-**/__pycache__/
-*.pyc
-*.pyo
-*.pyd
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+
+# Node
+node_modules/
+dist/
+.next/
+.nuxt/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Secrets
 .env
-generated_reports/
+*.env
+config/api_keys.json
+secrets.json
+
+# Build artifacts
+*.o
+*.d
+target/
+Cargo.lock   # only if this is a library crate; remove this line for binaries
+
+# Output files / plots
+*.png
+*.jpg
+*.jpeg
+*.pdf
+# Exception: add back any images that ARE part of the README or docs:
+# !docs/images/
+
+# Backup files
+*.bak
+*.backup
+*.orig
+dashboard.preview.bak
