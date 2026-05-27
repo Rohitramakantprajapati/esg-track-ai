@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import EnvironmentalData, GovernanceData, SocialData, Submission
 from app.schemas import EnvironmentalCreate, GovernanceCreate, SocialCreate
+from auth import decode_token
 
 router = APIRouter(prefix="/data", tags=["data"])
 
@@ -164,7 +165,11 @@ def upsert_submission(db: Session, company_id: int, month: int, year: int, data_
 
 
 @router.post("/environmental")
-def save_environmental(payload: EnvironmentalCreate, db: Session = Depends(get_db)):
+def save_environmental(
+    payload: EnvironmentalCreate,
+    db: Session = Depends(get_db),
+    user: str = Depends(decode_token),
+):
     item = (
         db.query(EnvironmentalData)
         .filter(
@@ -188,7 +193,11 @@ def save_environmental(payload: EnvironmentalCreate, db: Session = Depends(get_d
 
 
 @router.post("/social")
-def save_social(payload: SocialCreate, db: Session = Depends(get_db)):
+def save_social(
+    payload: SocialCreate,
+    db: Session = Depends(get_db),
+    user: str = Depends(decode_token),
+):
     item = (
         db.query(SocialData)
         .filter(
@@ -212,7 +221,11 @@ def save_social(payload: SocialCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/governance")
-def save_governance(payload: GovernanceCreate, db: Session = Depends(get_db)):
+def save_governance(
+    payload: GovernanceCreate,
+    db: Session = Depends(get_db),
+    user: str = Depends(decode_token),
+):
     item = (
         db.query(GovernanceData)
         .filter(

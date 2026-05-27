@@ -11,6 +11,7 @@ from app.database import get_db
 from app.models import Company, GeneratedReport
 from app.routers.scores import compute_monthly_scores
 from app.services.analytics import build_gap_analysis, build_recommendations
+from auth import decode_token
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -19,7 +20,13 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @router.get("/generate/{company_id}/{month}/{year}")
-def generate_report(company_id: int, month: int, year: int, db: Session = Depends(get_db)):
+def generate_report(
+    company_id: int,
+    month: int,
+    year: int,
+    db: Session = Depends(get_db),
+    user: str = Depends(decode_token),
+):
     company = db.query(Company).filter(Company.id == company_id).one_or_none()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")

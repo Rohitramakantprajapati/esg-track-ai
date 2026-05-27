@@ -80,6 +80,8 @@ Each includes 6 months of environmental, social, and governance data.
 - `GET /alerts/{company_id}`
 
 ## Notes
-- No authentication is enabled (open access by design).
+- JWT authentication is enabled for write/report endpoints.
+- Obtain token via `POST /auth/token` with form fields `username` and `password`.
+- Send `Authorization: Bearer <token>` for `/data/environmental`, `/data/social`, `/data/governance`, and `/reports/generate/{company_id}/{month}/{year}`.
 - CORS is open to simplify local integration.
 - Report history, submission workflow, and alerts include supporting backend tables.
