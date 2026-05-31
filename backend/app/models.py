@@ -1,7 +1,6 @@
 from datetime import datetime
 
 from sqlalchemy import (
-    JSON,
     Boolean,
     Column,
     DateTime,
@@ -12,8 +11,6 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import relationship
-
 from .database import Base
 
 

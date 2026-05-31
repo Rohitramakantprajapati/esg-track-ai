@@ -2,7 +2,7 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 
-from auth import create_access_token, get_password_hash, verify_password
+from auth import create_access_token, verify_password
 from app.database import Base, SessionLocal, engine
 from app.routers import alerts, analytics, auditor, companies, data, reports, scores, sensors, upload
 from app.utils.seed import seed_sample_data
