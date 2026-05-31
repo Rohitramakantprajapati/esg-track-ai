@@ -1,12 +1,16 @@
 from datetime import datetime, timedelta
 from typing import Optional
+import os
+import logging
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
-SECRET_KEY = "CHANGE_THIS_IN_PRODUCTION_USE_ENV_VAR"
+SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_THIS_IN_PRODUCTION_USE_ENV_VAR")
+if SECRET_KEY == "CHANGE_THIS_IN_PRODUCTION_USE_ENV_VAR":
+    logging.warning("Using default SECRET_KEY; set SECRET_KEY env var in production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
