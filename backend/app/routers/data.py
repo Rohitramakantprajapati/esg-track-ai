@@ -164,27 +164,23 @@ def upsert_submission(db: Session, company_id: int, month: int, year: int, data_
         )
 
 
+def replace_period_data(db: Session, model, company_id: int, month: int, year: int):
+    db.query(model).filter(
+        model.company_id == company_id,
+        model.month == month,
+        model.year == year,
+    ).delete(synchronize_session=False)
+
+
 @router.post("/environmental")
 def save_environmental(
     payload: EnvironmentalCreate,
     db: Session = Depends(get_db),
     user: str = Depends(decode_token),
 ):
-    item = (
-        db.query(EnvironmentalData)
-        .filter(
-            EnvironmentalData.company_id == payload.company_id,
-            EnvironmentalData.month == payload.month,
-            EnvironmentalData.year == payload.year,
-        )
-        .one_or_none()
-    )
-    if item:
-        for k, v in payload.model_dump().items():
-            setattr(item, k, v)
-    else:
-        item = EnvironmentalData(**payload.model_dump())
-        db.add(item)
+    replace_period_data(db, EnvironmentalData, payload.company_id, payload.month, payload.year)
+    item = EnvironmentalData(**payload.model_dump())
+    db.add(item)
 
     upsert_submission(db, payload.company_id, payload.month, payload.year, "environmental")
     db.commit()
@@ -198,21 +194,9 @@ def save_social(
     db: Session = Depends(get_db),
     user: str = Depends(decode_token),
 ):
-    item = (
-        db.query(SocialData)
-        .filter(
-            SocialData.company_id == payload.company_id,
-            SocialData.month == payload.month,
-            SocialData.year == payload.year,
-        )
-        .one_or_none()
-    )
-    if item:
-        for k, v in payload.model_dump().items():
-            setattr(item, k, v)
-    else:
-        item = SocialData(**payload.model_dump())
-        db.add(item)
+    replace_period_data(db, SocialData, payload.company_id, payload.month, payload.year)
+    item = SocialData(**payload.model_dump())
+    db.add(item)
 
     upsert_submission(db, payload.company_id, payload.month, payload.year, "social")
     db.commit()
@@ -226,21 +210,9 @@ def save_governance(
     db: Session = Depends(get_db),
     user: str = Depends(decode_token),
 ):
-    item = (
-        db.query(GovernanceData)
-        .filter(
-            GovernanceData.company_id == payload.company_id,
-            GovernanceData.month == payload.month,
-            GovernanceData.year == payload.year,
-        )
-        .one_or_none()
-    )
-    if item:
-        for k, v in payload.model_dump().items():
-            setattr(item, k, v)
-    else:
-        item = GovernanceData(**payload.model_dump())
-        db.add(item)
+    replace_period_data(db, GovernanceData, payload.company_id, payload.month, payload.year)
+    item = GovernanceData(**payload.model_dump())
+    db.add(item)
 
     upsert_submission(db, payload.company_id, payload.month, payload.year, "governance")
     db.commit()

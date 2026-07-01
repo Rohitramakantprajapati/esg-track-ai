@@ -41,6 +41,17 @@ def get_analytics(
             and (m["year"], m["month"]) <= (end_year, end_month)
         ]
 
+    # guard against filters that produce no data
+    if not monthly:
+        return {
+            "company": company.name,
+            "breakdown": {},
+            "gap_analysis": [],
+            "recommendations": [],
+            "peer_comparison": [],
+            "trend_table": [],
+        }
+
     current = monthly[-1]
     gap_analysis = build_gap_analysis(
         type("Env", (), current["raw"]["environmental"]),

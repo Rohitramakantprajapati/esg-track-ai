@@ -53,6 +53,7 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
   });
 
   const [uploadData, setUploadData] = useState(null);
+  const [uploadFile, setUploadFile] = useState(null);
   const [dataType, setDataType] = useState('environmental');
   const [mapping, setMapping] = useState({});
 
@@ -66,6 +67,7 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
   const [sensors, setSensors] = useState([]);
   const [statusMsg, setStatusMsg] = useState('');
   const [autoImporting, setAutoImporting] = useState(false);
+  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [selectedFileName, setSelectedFileName] = useState('');
   const fileInputRef = useRef(null);
@@ -309,10 +311,20 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
 
   const saveManual = async () => {
     if (!selectedCompanyId) return;
-    await Promise.all([
-      api.post('/data/environmental', { company_id: selectedCompanyId, month, year, ...Object.fromEntries(Object.entries(envForm).map(([k, v]) => [k, Number(v || 0)])) }),
-      api.post('/data/social', { company_id: selectedCompanyId, month, year, ...Object.fromEntries(Object.entries(socialForm).map(([k, v]) => [k, Number(v || 0)])) }),
-      api.post('/data/governance', {
+    try {
+      await api.post('/data/environmental', {
+        company_id: selectedCompanyId,
+        month,
+        year,
+        ...Object.fromEntries(Object.entries(envForm).map(([k, v]) => [k, Number(v || 0)])),
+      });
+      await api.post('/data/social', {
+        company_id: selectedCompanyId,
+        month,
+        year,
+        ...Object.fromEntries(Object.entries(socialForm).map(([k, v]) => [k, Number(v || 0)])),
+      });
+      await api.post('/data/governance', {
         company_id: selectedCompanyId,
         month,
         year,
@@ -321,11 +333,15 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
         audit_meetings: Number(govForm.audit_meetings || 0),
         has_whistleblower_policy: Boolean(govForm.has_whistleblower_policy),
         data_breaches: Number(govForm.data_breaches || 0),
-      }),
-    ]);
-    await loadMonthlyData();
-    await syncEverything(selectedCompanyId, month, year, 'manual-entry');
-    window.alert('Data saved and everything is auto-updated: dashboard, analytics, auditor, reports, and alerts.');
+      });
+
+      await loadMonthlyData();
+      await syncEverything(selectedCompanyId, month, year, 'manual-entry');
+      window.alert('Data saved and everything is auto-updated: dashboard, analytics, auditor, reports, and alerts.');
+    } catch (err) {
+      const detail = err?.response?.data?.detail || err.message || 'Save failed';
+      setStatusMsg(`Save failed: ${detail}`);
+    }
   };
 
   const executeImport = async ({ companyId, targetMonth, targetYear, detectedType, rows, detectedMapping, source }) => {
@@ -383,10 +399,20 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
   const handleFile = async (file) => {
     if (!file) return;
     setSelectedFileName(file.name || '');
+    setUploadFile(file);
     const form = new FormData();
     form.append('file', file);
-    const { data } = await api.post('/upload/csv', form, { headers: { 'Content-Type': 'multipart/form-data' } });
-    setUploadData(data);
+    let data;
+    try {
+      const resp = await api.post('/upload/csv', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      data = resp.data;
+      setUploadData(data);
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err.message || 'Upload failed';
+      setStatusMsg(`Upload error: ${msg}`);
+      setAutoImporting(false);
+      return;
+    }
 
     const detectedType = detectDataType(data.columns);
     const detectedMeta = detectUploadMeta(data.columns, data.rows || []);
@@ -421,25 +447,11 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
         : detectedType === 'others'
           ? "dataset does not match Environmental/Social/Governance fields"
           : 'detection confidence is low';
-      setStatusMsg(`Upload detected automatically: ${detectNotes}. Auto-import paused because ${reason}, please review mapping and click Confirm and Import.`);
+      setStatusMsg(`Upload detected automatically: ${detectNotes}. Auto-import paused because ${reason}, please review mapping and click Save and Continue.`);
       return;
     }
 
-    setAutoImporting(true);
-    setStatusMsg(`Upload detected automatically: ${detectNotes}. Auto-import in progress...`);
-    try {
-      await executeImport({
-        companyId: targetCompanyId,
-        targetMonth,
-        targetYear,
-        detectedType,
-        rows: data.rows,
-        detectedMapping,
-        source: 'file-auto-import',
-      });
-    } finally {
-      setAutoImporting(false);
-    }
+    setStatusMsg(`Upload detected automatically: ${detectNotes}. Review the preview, then click Save and Continue to import and sync the dashboard.`);
   };
 
   const openFilePicker = () => {
@@ -485,25 +497,76 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
 
   const importData = async () => {
     if (!uploadData) return;
-    await executeImport({
-      companyId: selectedCompanyId,
-      targetMonth: month,
-      targetYear: year,
-      detectedType: dataType,
-      rows: uploadData.rows,
-      detectedMapping: mapping,
-      source: 'file-import',
-    });
-    window.alert('Import completed and everything is auto-updated: dashboard, analytics, auditor, reports, and alerts.');
+    setAutoImporting(true);
+    setStatusMsg('Saving uploaded data...');
+
+    try {
+      // If the original file is available, post it server-side so all rows are imported
+      if (uploadFile) {
+        const fd = new FormData();
+        fd.append('file', uploadFile);
+        fd.append('mapping', JSON.stringify(mapping));
+        fd.append('data_type', dataType);
+        fd.append('month', String(month));
+        fd.append('year', String(year));
+        fd.append('company_id', String(selectedCompanyId || 0));
+
+        const resp = await api.post('/upload/import-file', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+        const imported = resp.data?.imported_records || 0;
+        const companies = resp.data?.companies || [];
+
+        if (autoUpdateEnabled) {
+          if (companies.length > 0) {
+            await Promise.all(companies.map((cid) => syncEverything(cid, month, year, 'file-import')));
+          } else if (selectedCompanyId) {
+            await syncEverything(selectedCompanyId, month, year, 'file-import');
+          }
+        } else {
+          onDataUpdated?.({ companyId: selectedCompanyId, month, year, source: 'file-import' });
+        }
+
+        setStatusMsg(`Import completed: ${imported} records processed${autoUpdateEnabled ? ' and all modules synced.' : '.'}`);
+        if (autoUpdateEnabled) {
+          window.alert('Import completed and everything is auto-updated.');
+        }
+        return;
+      }
+
+      // fallback: import using the preview rows
+      await executeImport({
+        companyId: selectedCompanyId,
+        targetMonth: month,
+        targetYear: year,
+        detectedType: dataType,
+        rows: uploadData.rows,
+        detectedMapping: mapping,
+        source: 'file-import',
+      });
+
+      if (!autoUpdateEnabled) {
+        onDataUpdated?.({ companyId: selectedCompanyId, month, year, source: 'file-import' });
+      }
+
+      setStatusMsg(`Import completed${autoUpdateEnabled ? ' and everything is auto-updated.' : '.'}`);
+      if (autoUpdateEnabled) {
+        window.alert('Import completed and everything is auto-updated.');
+      }
+    } finally {
+      setAutoImporting(false);
+    }
   };
 
   const saveSensor = async () => {
-    await api.post('/sensors', {
+    const { data } = await api.post('/sensors', {
       company_id: selectedCompanyId,
       ...sensorForm,
     });
     setSensorForm({ sensor_name: '', api_endpoint: '', api_key: '', data_type: 'carbon', is_active: true });
     loadSensors();
+    if (data?.id) {
+      await pullSensorData(data.id);
+      setStatusMsg('New sensor connected and latest reading pulled. All modules refreshed.');
+    }
   };
 
   const pullSensorData = async (sensorId) => {
@@ -616,7 +679,15 @@ function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataU
                   </tbody>
                 </table>
               </div>
-              <button className="btn" onClick={importData} disabled={autoImporting}>{autoImporting ? 'Auto Importing...' : 'Confirm and Import'}</button>
+              <div className="row gap wrap" style={{ alignItems: 'center' }}>
+                <label className="toggle-row">
+                  <input type="checkbox" checked={autoUpdateEnabled} onChange={(e) => setAutoUpdateEnabled(e.target.checked)} />
+                  Auto update dashboard after save
+                </label>
+              </div>
+              <button className="btn" onClick={importData} disabled={autoImporting || !uploadData}>
+                {autoImporting ? 'Saving...' : autoUpdateEnabled ? 'Save and Auto Update' : 'Save and Continue'}
+              </button>
             </>
           )}
         </div>

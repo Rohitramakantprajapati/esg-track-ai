@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import CompanySelector from '../components/CompanySelector';
-import api from '../services/api';
+import api, { ensureAuthToken } from '../services/api';
 
 const sections = [
   'ESG Scorecard',
@@ -16,6 +16,7 @@ function ReportsPage({ companies, selectedCompanyId, setSelectedCompanyId, dataR
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
   const [history, setHistory] = useState([]);
+  const [statusMsg, setStatusMsg] = useState('');
 
   const loadHistory = async () => {
     if (!selectedCompanyId) return;
@@ -23,7 +24,7 @@ function ReportsPage({ companies, selectedCompanyId, setSelectedCompanyId, dataR
     setHistory(data);
   };
 
-  useEffect(() => { loadHistory(); }, [selectedCompanyId, dataRefreshKey]);
+  useEffect(() => { loadHistory(); }, [selectedCompanyId, dataRefreshKey, lastDataUpdate]);
 
   useEffect(() => {
     if (!lastDataUpdate || lastDataUpdate.companyId !== selectedCompanyId) return;
@@ -31,11 +32,32 @@ function ReportsPage({ companies, selectedCompanyId, setSelectedCompanyId, dataR
     setYear(lastDataUpdate.year);
   }, [lastDataUpdate, selectedCompanyId]);
 
-  const generate = async () => {
+  const openReport = async () => {
     if (!selectedCompanyId) return;
-    const url = `${api.defaults.baseURL}/reports/generate/${selectedCompanyId}/${month}/${year}`;
-    window.open(url, '_blank');
-    setTimeout(loadHistory, 800);
+
+    try {
+      setStatusMsg('Generating report...');
+      await ensureAuthToken();
+
+      const response = await api.get(`/reports/generate/${selectedCompanyId}/${month}/${year}`, {
+        responseType: 'blob',
+      });
+
+      const blobUrl = window.URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.click();
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+      setStatusMsg(`Report generated for ${String(month).padStart(2, '0')}/${year}.`);
+      setTimeout(loadHistory, 800);
+    } catch (error) {
+      const detail = error?.response?.status === 404
+        ? `No complete ESG data is available for ${String(month).padStart(2, '0')}/${year} yet.`
+        : 'Unable to generate the report right now.';
+      setStatusMsg(detail);
+    }
   };
 
   return (
@@ -46,9 +68,10 @@ function ReportsPage({ companies, selectedCompanyId, setSelectedCompanyId, dataR
           <CompanySelector companies={companies} value={selectedCompanyId} onChange={setSelectedCompanyId} />
           <input className="input" type="number" min={1} max={12} value={month} onChange={(e) => setMonth(Number(e.target.value))} />
           <input className="input" type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} />
-          <button className="btn" onClick={generate}>Generate Report</button>
-          <button className="btn btn-light" onClick={generate}>Download PDF</button>
+          <button className="btn" onClick={openReport}>Generate Report</button>
+          <button className="btn btn-light" onClick={openReport}>Download PDF</button>
         </div>
+        {statusMsg && <p className="muted" style={{ marginTop: 10 }}>{statusMsg}</p>}
       </div>
 
       <div className="card">
@@ -68,7 +91,32 @@ function ReportsPage({ companies, selectedCompanyId, setSelectedCompanyId, dataR
                 <tr key={h.id}>
                   <td>{String(h.month).padStart(2, '0')}/{h.year}</td>
                   <td>{new Date(h.generated_at).toLocaleString()}</td>
-                  <td><a href={`${api.defaults.baseURL}/reports/generate/${h.company_id}/${h.month}/${h.year}`} target="_blank">Download</a></td>
+                  <td>
+                    <button
+                      className="link-button"
+                      onClick={async () => {
+                        try {
+                          setStatusMsg('Preparing historical report...');
+                          await ensureAuthToken();
+                          const response = await api.get(`/reports/generate/${h.company_id}/${h.month}/${h.year}`, {
+                            responseType: 'blob',
+                          });
+                          const blobUrl = window.URL.createObjectURL(response.data);
+                          const link = document.createElement('a');
+                          link.href = blobUrl;
+                          link.target = '_blank';
+                          link.rel = 'noopener noreferrer';
+                          link.click();
+                          window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+                          setStatusMsg(`Report opened for ${String(h.month).padStart(2, '0')}/${h.year}.`);
+                        } catch {
+                          setStatusMsg(`No complete ESG report is available for ${String(h.month).padStart(2, '0')}/${h.year}.`);
+                        }
+                      }}
+                    >
+                      Download
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

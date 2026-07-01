@@ -7,7 +7,7 @@ import AuditorPage from './pages/AuditorPage';
 import DashboardPage from './pages/DashboardPage';
 import InputPage from './pages/InputPage';
 import ReportsPage from './pages/ReportsPage';
-import api from './services/api';
+import api, { ensureAuthToken } from './services/api';
 
 function App() {
   const [companies, setCompanies] = useState([]);
@@ -25,6 +25,12 @@ function App() {
 
   useEffect(() => {
     loadCompanies();
+  }, []);
+
+  useEffect(() => {
+    ensureAuthToken().catch(() => {
+      // Public pages still work; protected actions will retry on demand.
+    });
   }, []);
 
   const notifyDataUpdated = (payload) => {

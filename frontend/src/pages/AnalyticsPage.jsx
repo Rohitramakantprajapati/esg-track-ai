@@ -34,10 +34,28 @@ function AnalyticsPage({ companies, selectedCompanyId, setSelectedCompanyId, dat
 
   useEffect(() => {
     if (!lastDataUpdate || lastDataUpdate.companyId !== selectedCompanyId) return;
-    setEndMonth(lastDataUpdate.month);
-    setEndYear(lastDataUpdate.year);
-    setStartMonth(Math.max(1, lastDataUpdate.month - 2));
-    setStartYear(lastDataUpdate.year);
+    const updateStartMonth = Math.max(1, lastDataUpdate.month - 2);
+    const updateStartYear = lastDataUpdate.year;
+    const updateEndMonth = lastDataUpdate.month;
+    const updateEndYear = lastDataUpdate.year;
+
+    setEndMonth(updateEndMonth);
+    setEndYear(updateEndYear);
+    setStartMonth(updateStartMonth);
+    setStartYear(updateStartYear);
+
+    (async () => {
+      if (!selectedCompanyId) return;
+      const res = await api.get(`/analytics/${selectedCompanyId}`, {
+        params: {
+          start_month: updateStartMonth,
+          start_year: updateStartYear,
+          end_month: updateEndMonth,
+          end_year: updateEndYear,
+        },
+      });
+      setData(res.data);
+    })();
   }, [lastDataUpdate, selectedCompanyId]);
 
   return (
