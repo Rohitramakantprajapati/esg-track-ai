@@ -50,6 +50,7 @@ Cargo.lock   # only if this is a library crate; remove this line for binaries
 *.bak
 *.backup
 *.orig
-dashboard.preview.bakbackend/esg_track.db
+dashboard.preview.bak
+backend/esg_track.db
 .venv312/
 sample_upload.csv
