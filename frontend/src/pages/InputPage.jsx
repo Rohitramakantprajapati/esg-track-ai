@@ -26,7 +26,7 @@ const fieldToType = allTypedFields.reduce((acc, field) => {
 }, {});
 
 function InputPage({ companies, selectedCompanyId, setSelectedCompanyId, onDataUpdated }) {
-  const [tab, setTab] = useState('Manual Entry');
+  const [tab, setTab] = useState('File Upload');
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
 

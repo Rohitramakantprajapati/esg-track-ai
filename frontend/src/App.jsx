@@ -50,12 +50,22 @@ function App() {
           <Route
             path="/"
             element={
-              <DashboardPage
+              <InputPage
                 companies={companies}
                 selectedCompanyId={selectedCompanyId}
                 setSelectedCompanyId={setSelectedCompanyId}
-                refreshCompanies={loadCompanies}
-                dataRefreshKey={dataRefreshKey}
+                onDataUpdated={notifyDataUpdated}
+              />
+            }
+          />
+          <Route
+            path="/upload"
+            element={
+              <InputPage
+                companies={companies}
+                selectedCompanyId={selectedCompanyId}
+                setSelectedCompanyId={setSelectedCompanyId}
+                onDataUpdated={notifyDataUpdated}
               />
             }
           />
@@ -67,6 +77,18 @@ function App() {
                 selectedCompanyId={selectedCompanyId}
                 setSelectedCompanyId={setSelectedCompanyId}
                 onDataUpdated={notifyDataUpdated}
+              />
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <DashboardPage
+                companies={companies}
+                selectedCompanyId={selectedCompanyId}
+                setSelectedCompanyId={setSelectedCompanyId}
+                refreshCompanies={loadCompanies}
+                dataRefreshKey={dataRefreshKey}
               />
             }
           />
